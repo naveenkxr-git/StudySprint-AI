@@ -14,14 +14,17 @@ function getEmbeddingModel() {
   if (!genAI) {
     throw new Error("GEMINI_API_KEY is not configured. Please set it in your environment.");
   }
-  return genAI.getGenerativeModel({ model: "text-embedding-004" });
+  return genAI.getGenerativeModel({ model: "gemini-embedding-001" });
 }
 
 // Generate Embeddings for RAG
 export async function generateEmbedding(text: string): Promise<number[]> {
   try {
     const model = getEmbeddingModel();
-    const result = await model.embedContent(text);
+    const result = await model.embedContent({
+      content: { role: "user", parts: [{ text }] },
+      outputDimensionality: 768,
+    } as any);
     return result.embedding.values;
   } catch (error) {
     console.error("Error generating embedding:", error);

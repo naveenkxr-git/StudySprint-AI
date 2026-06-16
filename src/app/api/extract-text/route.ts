@@ -3,6 +3,8 @@ import { getSupabaseAdmin } from '@/lib/supabase';
 import { generateEmbedding } from '@/lib/gemini';
 import { PDFParse } from 'pdf-parse';
 import * as mammoth from 'mammoth';
+import * as path from 'path';
+import { pathToFileURL } from 'url';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,9 +33,11 @@ function chunkText(text: string, maxChunkSize = 1000, overlap = 200): string[] {
 }
 
 export async function POST(req: Request) {
+  let documentId: string | null = null;
   try {
     const body = await req.json();
-    const { documentId, filePath, fileType } = body;
+    documentId = body.documentId;
+    const { filePath, fileType } = body;
 
     if (!documentId || !filePath || !fileType) {
       return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
@@ -70,6 +74,10 @@ export async function POST(req: Request) {
 
     if (fileType === 'pdf') {
       try {
+        const workerPath = path.resolve(process.cwd(), 'node_modules/pdf-parse/dist/pdf-parse/cjs/pdf.worker.mjs');
+        const workerUrl = pathToFileURL(workerPath).href;
+        PDFParse.setWorker(workerUrl);
+
         const parser = new PDFParse({ data: buffer });
         const info = await parser.getInfo({ parsePageInfo: true });
         numPages = info.total || 1;
@@ -155,17 +163,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, pages: numPages, chunks: chunks.length });
   } catch (error: any) {
     console.error('Text extraction pipeline error:', error);
-    const supabaseAdmin = getSupabaseAdmin();
-    // try to mark as error if we have a documentId
-    try {
-      const body = await req.json().catch(() => ({}));
-      if (body.documentId) {
+    if (documentId) {
+      try {
+        const supabaseAdmin = getSupabaseAdmin();
         await supabaseAdmin
           .from('documents')
           .update({ status: 'error' })
-          .eq('id', body.documentId);
-      }
-    } catch (_) {}
+          .eq('id', documentId);
+      } catch (_) {}
+    }
 
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
